@@ -1,7 +1,20 @@
 FROM python:3.11-slim
 WORKDIR /app
+
+# 安装 MySQL 客户端（用于健康检查）
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends default-mysql-client && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
 COPY . .
+
 EXPOSE 8000
+
+# 使用 entrypoint 脚本等待数据库就绪并执行迁移
+COPY entrypoint-backend.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
