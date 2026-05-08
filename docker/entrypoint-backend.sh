@@ -1,6 +1,25 @@
 #!/bin/bash
 set -e
 
+echo "等待 MySQL TCP 端口就绪..."
+
+host="${DATABASE_HOST:-mysql}"
+port="${DATABASE_PORT:-3306}"
+max_wait=60
+counter=0
+
+until nc -z "$host" "$port" 2>/dev/null; do
+    counter=$((counter + 1))
+    if [ $counter -eq $max_wait ]; then
+        echo "MySQL TCP 连接超时"
+        exit 1
+    fi
+    echo "等待 MySQL TCP 端口... ($counter/$max_wait)"
+    sleep 2
+done
+
+echo "MySQL TCP 端口已就绪"
+
 echo "执行数据库迁移..."
 python manage.py migrate --noinput
 
