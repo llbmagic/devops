@@ -20,6 +20,19 @@ class User(AbstractUser):
     department = models.ForeignKey(Department, null=True, on_delete=models.SET_NULL, verbose_name='部门')
     roles = models.ManyToManyField('Role', blank=True, verbose_name='角色')
 
+    groups = models.ManyToManyField(
+        'auth.Group',
+        blank=True,
+        related_name='users_groups',
+        related_query_name='users_group',
+    )
+    user_permissions = models.ManyToManyField(
+        'auth.Permission',
+        blank=True,
+        related_name='users_permissions',
+        related_query_name='users_permission',
+    )
+
     class Meta:
         db_table = 'user'
         verbose_name = '用户'
