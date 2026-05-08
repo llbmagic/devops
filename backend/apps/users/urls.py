@@ -9,7 +9,7 @@ router.register(r'roles', RoleViewSet)
 router.register(r'departments', DepartmentViewSet)
 
 urlpatterns = [
-    path('auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 ]
 urlpatterns += router.urls
