@@ -13,7 +13,7 @@
 
 ## 功能模块
 
-- **CMDB** - 主机管理、业务线分组、标签管理
+- **CMDB** - 主机管理、业务线、环境、应用、集群、标签、应用依赖关系
 - **CI/CD** - Jenkins 集成、流水线管理、构建触发
 - **监控告警** - Prometheus 集成、告警规则、Alertmanager Webhook
 
@@ -136,7 +136,39 @@ devops/
 └── docker/              # Docker 部署配置
 ```
 
-## API 文档
+## 数据库连接信息
+
+| 配置项 | 值 |
+|--------|-----|
+| 主机 | localhost 或 127.0.0.1 |
+| 端口 | 3306 |
+| 数据库 | devops_db |
+| 用户名 | root |
+| 密码 | devops123 |
+
+## API 路由
+
+| 前缀 | 模块 | 说明 |
+|------|------|------|
+| `/api/users/login/` | users | JWT 登录 |
+| `/api/users/refresh/` | users | JWT 刷新 |
+| `/api/users/users/` | users | 用户 CRUD |
+| `/api/users/roles/` | users | 角色 CRUD |
+| `/api/users/departments/` | users | 部门 CRUD |
+| `/api/cmdb/business-lines/` | cmdb | 业务线 CRUD |
+| `/api/cmdb/environments/` | cmdb | 环境 CRUD |
+| `/api/cmdb/applications/` | cmdb | 应用 CRUD |
+| `/api/cmdb/clusters/` | cmdb | 集群 CRUD |
+| `/api/cmdb/tags/` | cmdb | 标签 CRUD |
+| `/api/cmdb/hosts/` | cmdb | 主机 CRUD |
+| `/api/cmdb/application-dependencies/` | cmdb | 应用依赖关系 CRUD |
+| `/api/cicd/jenkins-instances/` | cicd | Jenkins 实例管理 |
+| `/api/cicd/jobs/` | cicd | Jenkins Job CRUD |
+| `/api/cicd/builds/` | cicd | 构建记录 |
+| `/api/cicd/pipelines/` | cicd | 流水线 CRUD |
+| `/api/monitor/prometheus-instances/` | monitor | Prometheus 实例管理 |
+| `/api/monitor/alert-rules/` | monitor | 告警规则 CRUD |
+| `/api/monitor/alerts/` | monitor | 告警记录 |
 
 启动后访问：http://localhost:8000/admin/
 
