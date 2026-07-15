@@ -57,6 +57,36 @@
           <el-menu-item index="/monitor/rules">告警规则</el-menu-item>
           <el-menu-item index="/monitor/alerts">告警列表</el-menu-item>
         </el-sub-menu>
+
+        <el-sub-menu index="gitlab">
+          <template #title>
+            <el-icon><Link /></el-icon>
+            <span>GitLab</span>
+          </template>
+          <el-menu-item index="/gitlab/instances">实例管理</el-menu-item>
+          <el-menu-item index="/gitlab/projects">代码仓库</el-menu-item>
+          <el-menu-item index="/gitlab/merge-requests">合并请求</el-menu-item>
+        </el-sub-menu>
+
+        <el-sub-menu index="ansible">
+          <template #title>
+            <el-icon><Operation /></el-icon>
+            <span>Ansible</span>
+          </template>
+          <el-menu-item index="/ansible/servers">控制节点</el-menu-item>
+          <el-menu-item index="/ansible/playbooks">剧本管理</el-menu-item>
+          <el-menu-item index="/ansible/records">执行记录</el-menu-item>
+        </el-sub-menu>
+
+        <el-sub-menu index="tickets">
+          <template #title>
+            <el-icon><List /></el-icon>
+            <span>工单审批</span>
+          </template>
+          <el-menu-item index="/tickets/templates">工单模板</el-menu-item>
+          <el-menu-item index="/tickets/list">工单列表</el-menu-item>
+          <el-menu-item index="/tickets/my">我的待审批</el-menu-item>
+        </el-sub-menu>
       </el-menu>
     </el-aside>
 
@@ -88,7 +118,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { HomeFilled, Setting, Coin, Refresh, Bell } from '@element-plus/icons-vue'
+import { HomeFilled, Setting, Coin, Refresh, Bell, Link, Operation, List } from '@element-plus/icons-vue'
 
 const router = useRouter()
 

@@ -90,6 +90,156 @@ interface Host {
   updated_at: string
 }
 
+/** GitLab 实例数据 */
+interface GitLabInstance {
+  id: number
+  name: string
+  url: string
+  access_token?: string
+  is_active: boolean
+  created_at: string
+}
+
+/** GitLab 项目数据 */
+interface Project {
+  id: number
+  instance: number
+  instance_name?: string
+  gitlab_id: number
+  name: string
+  path_with_namespace: string
+  web_url: string
+  default_branch: string
+  last_activity_at?: string
+  created_at: string
+}
+
+/** GitLab 合并请求数据 */
+interface MergeRequest {
+  id: number
+  project: number
+  project_name?: string
+  project_path?: string
+  gitlab_id: number
+  title: string
+  source_branch: string
+  target_branch: string
+  state: 'opened' | 'closed' | 'merged'
+  author: string
+  assignee?: string
+  review_status: 'pending' | 'approved' | 'rejected'
+  pipeline_status?: 'running' | 'success' | 'failed' | 'canceled' | 'pending'
+  web_url: string
+  created_at: string
+  updated_at: string
+}
+
+/** Ansible 控制节点数据 */
+interface AnsibleServer {
+  id: number
+  name: string
+  host: string
+  ssh_port: number
+  ssh_user: string
+  ssh_password?: string
+  private_key_path?: string
+  description?: string
+  is_active: boolean
+  created_at: string
+}
+
+/** Ansible 剧本数据 */
+interface Playbook {
+  id: number
+  name: string
+  playbook_path: string
+  description?: string
+  variables?: string
+  created_by: number
+  created_by_username?: string
+  task_count: number
+  created_at: string
+  updated_at: string
+}
+
+/** Ansible 执行记录数据 */
+interface TaskRecord {
+  id: number
+  playbook: number
+  playbook_name?: string
+  server: number
+  server_name?: string
+  target_hosts: string
+  variables?: string
+  status: 'pending' | 'running' | 'success' | 'failed'
+  executor: string
+  output?: string
+  error?: string
+  started_at: string
+  finished_at?: string
+  duration?: number
+}
+
+/** 工单模板数据 */
+interface TicketTemplate {
+  id: number
+  name: string
+  code: string
+  description?: string
+  approvers?: string
+  approval_steps: number
+  variables?: string
+  is_active: boolean
+  ticket_count: number
+  created_at: string
+}
+
+/** 审批步骤数据 */
+interface ApprovalStep {
+  id: number
+  ticket: number
+  step: number
+  approver: number
+  approver_name?: string
+  status: 'pending' | 'approved' | 'rejected'
+  status_display?: string
+  comment?: string
+  created_at: string
+  completed_at?: string
+  records: ApprovalRecord[]
+}
+
+/** 审批记录数据 */
+interface ApprovalRecord {
+  id: number
+  step: number
+  operator: number
+  operator_name?: string
+  action: 'approve' | 'reject'
+  action_display?: string
+  comment?: string
+  created_at: string
+}
+
+/** 工单数据 */
+interface Ticket {
+  id: number
+  title: string
+  template: number
+  template_name?: string
+  applicant: number
+  applicant_name?: string
+  description: string
+  variables?: string
+  status: 'draft' | 'pending' | 'approved' | 'rejected' | 'closed'
+  status_display?: string
+  current_step: number
+  approval_steps: ApprovalStep[]
+  created_at: string
+  updated_at: string
+  closed_at?: string
+}
+
 /** 创建 Axios 实例 */
 const api: AxiosInstance = axios.create({
   baseURL: 'http://localhost:8000',
@@ -158,7 +308,20 @@ export {
   LoginParams,
   TokenResponse,
   BusinessLine,
-  Host
+  Host,
+  // GitLab 相关
+  GitLabInstance,
+  Project,
+  MergeRequest,
+  // Ansible 相关
+  AnsibleServer,
+  Playbook,
+  TaskRecord,
+  // 工单相关
+  TicketTemplate,
+  Ticket,
+  ApprovalStep,
+  ApprovalRecord
 }
 
 export default api

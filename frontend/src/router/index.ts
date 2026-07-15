@@ -110,6 +110,60 @@ const routes: RouteRecordRaw[] = [
         name: 'Alerts',
         component: () => import('../views/Alerts.vue'),
         meta: { title: '告警记录' }
+      },
+      {
+        path: 'gitlab/instances',
+        name: 'GitLabInstances',
+        component: () => import('../views/GitLabInstances.vue'),
+        meta: { title: 'GitLab 实例' }
+      },
+      {
+        path: 'gitlab/projects',
+        name: 'GitLabProjects',
+        component: () => import('../views/GitLabProjects.vue'),
+        meta: { title: '代码仓库' }
+      },
+      {
+        path: 'gitlab/merge-requests',
+        name: 'MergeRequests',
+        component: () => import('../views/MergeRequests.vue'),
+        meta: { title: '合并请求' }
+      },
+      {
+        path: 'ansible/servers',
+        name: 'AnsibleServers',
+        component: () => import('../views/AnsibleServers.vue'),
+        meta: { title: 'Ansible 节点' }
+      },
+      {
+        path: 'ansible/playbooks',
+        name: 'Playbooks',
+        component: () => import('../views/Playbooks.vue'),
+        meta: { title: '剧本管理' }
+      },
+      {
+        path: 'ansible/records',
+        name: 'AnsibleRecords',
+        component: () => import('../views/AnsibleRecords.vue'),
+        meta: { title: '执行记录' }
+      },
+      {
+        path: 'tickets/templates',
+        name: 'TicketTemplates',
+        component: () => import('../views/TicketTemplates.vue'),
+        meta: { title: '工单模板' }
+      },
+      {
+        path: 'tickets/list',
+        name: 'TicketList',
+        component: () => import('../views/TicketList.vue'),
+        meta: { title: '工单列表' }
+      },
+      {
+        path: 'tickets/my',
+        name: 'MyTickets',
+        component: () => import('../views/MyTickets.vue'),
+        meta: { title: '我的待审批' }
       }
     ]
   }
