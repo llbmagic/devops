@@ -8,8 +8,13 @@
  *   - /dashboard - 控制台
  *   - /system/users - 用户管理
  *   - /system/roles - 角色管理
- *   - /cmdb/hosts - 主机管理
- *   - /cmdb/business-lines - 业务线管理
+ *   - /cmdb/assets - 资产列表
+ *   - /cmdb/assets/create - 创建资产
+ *   - /cmdb/assets/:id - 资产详情
+ *   - /cmdb/locations - 位置树
+ *   - /cmdb/business-tree - 服务树
+ *   - /cmdb/cloud-accounts - 云账号
+ *   - /cmdb/tags - 标签管理
  *   - /cicd/jenkins - Jenkins 实例管理
  *   - /cicd/jobs - Jenkins Job 管理
  *   - /cicd/builds - 构建记录
@@ -64,16 +69,46 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '角色管理' }
       },
       {
-        path: 'cmdb/hosts',
-        name: 'Hosts',
-        component: () => import('../views/Hosts.vue'),
-        meta: { title: '主机管理' }
+        path: 'cmdb/assets',
+        name: 'AssetList',
+        component: () => import('../views/AssetList.vue'),
+        meta: { title: '资产列表' }
       },
       {
-        path: 'cmdb/business-lines',
-        name: 'BusinessLines',
-        component: () => import('../views/BusinessLines.vue'),
-        meta: { title: '业务线管理' }
+        path: 'cmdb/assets/create',
+        name: 'AssetCreate',
+        component: () => import('../views/AssetCreate.vue'),
+        meta: { title: '创建资产' }
+      },
+      {
+        path: 'cmdb/assets/:id',
+        name: 'AssetDetail',
+        component: () => import('../views/AssetDetail.vue'),
+        meta: { title: '资产详情' }
+      },
+      {
+        path: 'cmdb/locations',
+        name: 'LocationTree',
+        component: () => import('../views/LocationTree.vue'),
+        meta: { title: '位置树' }
+      },
+      {
+        path: 'cmdb/business-tree',
+        name: 'BusinessTree',
+        component: () => import('../views/BusinessTree.vue'),
+        meta: { title: '服务树' }
+      },
+      {
+        path: 'cmdb/cloud-accounts',
+        name: 'CloudAccounts',
+        component: () => import('../views/CloudAccounts.vue'),
+        meta: { title: '云账号' }
+      },
+      {
+        path: 'cmdb/tags',
+        name: 'TagManage',
+        component: () => import('../views/TagManage.vue'),
+        meta: { title: '标签管理' }
       },
       {
         path: 'cicd/jenkins',

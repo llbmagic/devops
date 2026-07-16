@@ -34,8 +34,11 @@
             <el-icon><Coin /></el-icon>
             <span>资产管理</span>
           </template>
-          <el-menu-item index="/cmdb/hosts">主机管理</el-menu-item>
-          <el-menu-item index="/cmdb/business-lines">业务线</el-menu-item>
+          <el-menu-item index="/cmdb/assets">资产列表</el-menu-item>
+          <el-menu-item index="/cmdb/locations">位置树</el-menu-item>
+          <el-menu-item index="/cmdb/business-tree">服务树</el-menu-item>
+          <el-menu-item index="/cmdb/cloud-accounts">云账号</el-menu-item>
+          <el-menu-item index="/cmdb/tags">标签管理</el-menu-item>
         </el-sub-menu>
 
         <el-sub-menu index="cicd">

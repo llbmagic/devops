@@ -59,35 +59,143 @@ interface TokenResponse {
   refresh: string
 }
 
-/** 业务线数据 */
-interface BusinessLine {
+/** 资产类型定义 */
+interface AssetTypeDefinition {
   id: number
   name: string
-  description?: string
-  host_count: number
+  code: string
+  icon: string
+  fields: Array<{
+    name: string
+    type: 'string' | 'number' | 'boolean' | 'select' | 'date'
+    required: boolean
+    options?: string[]
+  }>
+  list_columns: string[]
   created_at: string
 }
 
-/** 主机数据 */
-interface Host {
+/** 位置节点数据 */
+interface LocationNode {
   id: number
-  hostname: string
-  ip_address: string
-  ssh_port: number
-  ssh_user: string
-  cpu?: string
-  memory?: string
-  disk?: string
-  status: 'online' | 'offline' | 'maintenance'
-  business_line: number
-  business_line_name?: string
-  cluster?: number
-  cluster_name?: string
-  cluster_code?: string
+  name: string
+  type: 'region' | 'idc' | 'rack' | 'server'
+  parent?: number
+  parent_name?: string
+  children?: LocationNode[]
+  asset_count: number
+  created_at: string
+}
+
+/** 业务服务节点数据 */
+interface BusinessServiceNode {
+  id: number
+  name: string
+  type: 'business_line' | 'application' | 'cluster' | 'service'
+  parent?: number
+  parent_name?: string
+  children?: BusinessServiceNode[]
+  asset_count: number
+  created_at: string
+}
+
+/** 标签数据 */
+interface Tag {
+  id: number
+  key: string
+  value: string
+  color?: string
+  asset_count: number
+  created_at: string
+}
+
+/** 资产列表项数据 */
+interface AssetListItem {
+  id: number
+  asset_type: string
+  name: string
+  status: 'online' | 'offline' | 'maintenance' | 'unknown'
+  location?: number
+  location_name?: string
   tags: Array<{ id: number; key: string; value: string }>
-  tags_detail: Array<{ id: number; key: string; value: string }>
   created_at: string
   updated_at: string
+}
+
+/** 资产详情数据 */
+interface AssetDetail {
+  id: number
+  asset_type: string
+  name: string
+  status: 'online' | 'offline' | 'maintenance' | 'unknown'
+  location?: number
+  location_name?: string
+  fields: Record<string, any>
+  tags: Array<{ id: number; key: string; value: string }>
+  dependencies: Array<{
+    id: number
+    target_asset: number
+    target_asset_name: string
+    dependency_type: string
+  }>
+  dependents: Array<{
+    id: number
+    source_asset: number
+    source_asset_name: string
+    dependency_type: string
+  }>
+  created_at: string
+  updated_at: string
+  created_by?: number
+  created_by_name?: string
+}
+
+/** 资产关系数据 */
+interface Relationship {
+  id: number
+  source_asset: number
+  source_asset_name?: string
+  target_asset: number
+  target_asset_name?: string
+  dependency_type: string
+  description?: string
+  created_at: string
+}
+
+/** 资产变更日志 */
+interface AssetChangeLog {
+  id: number
+  asset: number
+  asset_name?: string
+  action: 'create' | 'update' | 'delete'
+  field_name?: string
+  old_value?: string
+  new_value?: string
+  operator: number
+  operator_name?: string
+  created_at: string
+}
+
+/** 资产发现请求 */
+interface AssetDiscoverRequest {
+  discover_type: 'ip_range' | 'cloud_account' | ' import'
+  config: Record<string, any>
+}
+
+/** 云账号数据 */
+interface CloudAccount {
+  id: number
+  provider: 'aliyun' | 'aws' | 'tencent' | 'huawei' | 'azure' | 'gcp'
+  provider_display?: string
+  name: string
+  account_id: string
+  access_key?: string
+  secret_key?: string
+  region?: string
+  description?: string
+  is_active: boolean
+  last_sync_at?: string
+  created_at: string
 }
 
 /** GitLab 实例数据 */
@@ -344,8 +452,17 @@ export {
   AuthUser,
   LoginParams,
   TokenResponse,
-  BusinessLine,
-  Host,
+  // CMDB 相关
+  AssetTypeDefinition,
+  LocationNode,
+  BusinessServiceNode,
+  Tag,
+  CloudAccount,
+  AssetListItem,
+  AssetDetail,
+  Relationship,
+  AssetChangeLog,
+  AssetDiscoverRequest,
   // 工单相关
   TicketTemplate,
   Ticket,

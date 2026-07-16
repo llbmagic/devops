@@ -1,332 +1,334 @@
 """CMDB 模块视图集.
 
-提供 CMDB 各模型的 ViewSet，实现 RESTful API 接口。
-每个 ViewSet 对应一个模型，提供标准的 CRUD 操作。
-
-视图集列表:
-    - BusinessLineViewSet: 业务线视图集，完整 CRUD
-    - EnvironmentViewSet: 环境视图集，完整 CRUD
-    - ApplicationViewSet: 应用视图集，完整 CRUD，支持按业务线筛选
-    - ClusterViewSet: 集群视图集，完整 CRUD，支持按应用和环境筛选
-    - TagViewSet: 标签视图集，完整 CRUD
-    - HostViewSet: 主机视图集，完整 CRUD，支持按业务线、集群、状态筛选
-      附加动作:
-        - update_tags: 更新单个主机的标签
-        - batch_update_tags: 批量更新主机标签
-    - ApplicationDependencyViewSet: 应用依赖视图集，完整 CRUD
-
-认证说明:
-    所有视图集默认要求登录认证（IsAuthenticated）。
-    未认证请求会返回 401 Unauthorized。
-
-使用示例:
-    # 获取业务线列表
-    GET /api/cmdb/business-lines/
-
-    # 获取主机列表（按集群筛选）
-    GET /api/cmdb/hosts/?cluster=1
-
-    # 更新主机标签
-    POST /api/cmdb/hosts/1/update_tags/
-    Body: {"tag_ids": [1, 2, 3]}
+提供资产管理的完整 CRUD 操作，包括生命周期管理、关系管理、
+位置树、服务树、云账号配置和自动纳管接口。
 """
 
+import logging
+import json
+from typing import Optional
+from django.utils import timezone
+from django.db.models import Q
 from rest_framework import viewsets
 from rest_framework.decorators import action
+from rest_framework.request import Request
 from rest_framework.response import Response
-from .models import BusinessLine, Environment, Application, Cluster, Tag, Host, ApplicationDependency
+from .models import (
+    AssetTypeDefinition, LocationNode, BusinessServiceNode,
+    Tag, CloudAccount, Asset, AssetTag, Relationship, AssetChangeLog
+)
 from .serializers import (
-    BusinessLineSerializer, EnvironmentSerializer, ApplicationSerializer,
-    ClusterSerializer, TagSerializer, HostSerializer, ApplicationDependencySerializer
+    AssetTypeDefinitionSerializer,
+    LocationNodeSerializer, LocationNodeSimpleSerializer,
+    BusinessServiceNodeSerializer, BusinessServiceNodeSimpleSerializer,
+    TagSerializer, CloudAccountSerializer,
+    AssetListSerializer, AssetDetailSerializer, AssetCreateSerializer,
+    AssetTagSerializer,
+    RelationshipSerializer,
+    AssetChangeLogSerializer
 )
 
-
-class BusinessLineViewSet(viewsets.ModelViewSet):
-    """业务线视图集.
-
-    提供业务线的完整 CRUD 操作。
-
-    路由:
-        GET /api/cmdb/business-lines/ - 获取业务线列表
-        POST /api/cmdb/business-lines/ - 创建新业务线
-        GET /api/cmdb/business-lines/{id}/ - 获取业务线详情
-        PUT /api/cmdb/business-lines/{id}/ - 更新业务线
-        DELETE /api/cmdb/business-lines/{id}/ - 删除业务线
-
-    示例:
-        >>> # 创建业务线
-        >>> requests.post('/api/cmdb/business-lines/', data={'name': '电商平台'})
-        >>> # 获取列表
-        >>> requests.get('/api/cmdb/business-lines/')
-    """
-
-    queryset = BusinessLine.objects.all()
-    serializer_class = BusinessLineSerializer
+logger = logging.getLogger(__name__)
 
 
-class EnvironmentViewSet(viewsets.ModelViewSet):
-    """环境视图集.
+class AssetViewSet(viewsets.ModelViewSet):
+    """资产视图集."""
 
-    提供环境的完整 CRUD 操作。
+    queryset = Asset.objects.select_related(
+        'location', 'business_node'
+    ).prefetch_related('asset_tags__tag', 'change_logs').filter(
+        is_deleted=False
+    ).all()
 
-    路由:
-        GET /api/cmdb/environments/ - 获取环境列表
-        POST /api/cmdb/environments/ - 创建新环境
-        GET /api/cmdb/environments/{id}/ - 获取环境详情
-        PUT /api/cmdb/environments/{id}/ - 更新环境
-        DELETE /api/cmdb/environments/{id}/ - 删除环境
-
-    列表默认按 sort_order 和 id 排序。
-    """
-
-    queryset = Environment.objects.all()
-    serializer_class = EnvironmentSerializer
-
-
-class ApplicationViewSet(viewsets.ModelViewSet):
-    """应用视图集.
-
-    提供应用的完整 CRUD 操作，支持按业务线筛选。
-
-    路由:
-        GET /api/cmdb/applications/ - 获取应用列表
-        POST /api/cmdb/applications/ - 创建新应用
-        GET /api/cmdb/applications/{id}/ - 获取应用详情
-        PUT /api/cmdb/applications/{id}/ - 更新应用
-        DELETE /api/cmdb/applications/{id}/ - 删除应用
-
-    筛选参数:
-        - business_line: 按业务线 ID 筛选
-
-    示例:
-        >>> # 获取所有应用
-        >>> requests.get('/api/cmdb/applications/')
-        >>> # 只获取某业务线的应用
-        >>> requests.get('/api/cmdb/applications/?business_line=1')
-    """
-
-    queryset = Application.objects.select_related('business_line').all()
-    serializer_class = ApplicationSerializer
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return AssetListSerializer
+        if self.action in ['create', 'update', 'partial_update']:
+            return AssetCreateSerializer
+        return AssetDetailSerializer
 
     def get_queryset(self):
-        """获取查询集，支持按业务线筛选.
-
-        从请求参数中获取 business_line ID 并过滤结果。
-
-        Returns:
-            过滤后的应用查询集。
-        """
         queryset = super().get_queryset()
-        business_line = self.request.query_params.get('business_line')
-        if business_line:
-            queryset = queryset.filter(business_line_id=business_line)
+
+        asset_type = self.request.query_params.get('asset_type')
+        status = self.request.query_params.get('status')
+        location_id = self.request.query_params.get('location')
+        business_node_id = self.request.query_params.get('business_node')
+        keyword = self.request.query_params.get('keyword')
+
+        if asset_type:
+            queryset = queryset.filter(asset_type=asset_type)
+        if status:
+            queryset = queryset.filter(status=status)
+        if location_id:
+            queryset = queryset.filter(location_id=location_id)
+        if business_node_id:
+            queryset = queryset.filter(business_node_id=business_node_id)
+        if keyword:
+            queryset = queryset.filter(
+                Q(name__icontains=keyword) |
+                Q(unique_id__icontains=keyword) |
+                Q(owner__icontains=keyword)
+            )
+
+        return queryset
+
+    def perform_update(self, serializer):
+        old_instance = self.get_object()
+        old_values = {
+            field: getattr(old_instance, field)
+            for field in ['name', 'status', 'owner', 'location_id',
+                         'business_node_id', 'properties']
+        }
+
+        instance = serializer.save()
+
+        new_values = {
+            'name': instance.name,
+            'status': instance.status,
+            'owner': instance.owner,
+            'location_id': instance.location_id,
+            'business_node_id': instance.business_node_id,
+            'properties': instance.properties
+        }
+
+        for field, old_val in old_values.items():
+            new_val = new_values.get(field)
+            if old_val != new_val:
+                AssetChangeLog.objects.create(
+                    asset=instance,
+                    field=field,
+                    old_value=str(old_val) if old_val is not None else '',
+                    new_value=str(new_val) if new_val is not None else '',
+                    operator=self.request.user.username if self.request.user.is_authenticated else 'system',
+                    source='manual'
+                )
+
+        logger.info(f"用户 {self.request.user.username} 更新了资产 {instance.name}")
+
+    def perform_destroy(self, instance):
+        instance.is_deleted = True
+        instance.save()
+        logger.info(f"用户 {self.request.user.username} 删除了资产 {instance.name}")
+
+    @action(detail=True, methods=['post'])
+    def lifecycle(self, request: Request, pk: Optional[str] = None) -> Response:
+        """生命周期操作."""
+        asset = self.get_object()
+        action_type = request.data.get('action')
+
+        valid_actions = ['approve', 'reject', 'online', 'offline',
+                        'maintenance', 'decommission', 'archive']
+        if action_type not in valid_actions:
+            return Response({'error': f'无效操作，可选：{valid_actions}'}, status=400)
+
+        old_status = asset.status
+        status_mapping = {
+            'approve': 'online',
+            'reject': 'archived',
+            'online': 'online',
+            'offline': 'offline',
+            'maintenance': 'maintenance',
+            'decommission': 'decommissioned',
+            'archive': 'archived'
+        }
+
+        asset.status = status_mapping[action_type]
+        asset.save()
+
+        AssetChangeLog.objects.create(
+            asset=asset,
+            field='status',
+            old_value=old_status,
+            new_value=asset.status,
+            operator=request.user.username if request.user.is_authenticated else 'system',
+            source='manual'
+        )
+
+        logger.info(f"资产 {asset.name} 状态变更：{old_status} -> {asset.status}")
+        return Response({'status': asset.status})
+
+    @action(detail=True, methods=['get'])
+    def relationships(self, request: Request, pk: Optional[str] = None) -> Response:
+        """获取资产关联关系."""
+        asset = self.get_object()
+        rel_type = request.query_params.get('type')
+
+        outgoing = asset.outgoing_relationships.all()
+        incoming = asset.incoming_relationships.all()
+
+        if rel_type:
+            outgoing = outgoing.filter(type=rel_type)
+            incoming = incoming.filter(type=rel_type)
+
+        return Response({
+            'outgoing': RelationshipSerializer(outgoing, many=True).data,
+            'incoming': RelationshipSerializer(incoming, many=True).data
+        })
+
+    @action(detail=True, methods=['get'])
+    def history(self, request: Request, pk: Optional[str] = None) -> Response:
+        """获取变更历史."""
+        asset = self.get_object()
+        logs = asset.change_logs.all()[:50]
+        return Response(AssetChangeLogSerializer(logs, many=True).data)
+
+    @action(detail=False, methods=['post'])
+    def auto_discover(self, request: Request) -> Response:
+        """Agent 批量上报接口."""
+        agent_id = request.data.get('agent_id')
+        discoveries = request.data.get('discoveries', [])
+
+        if not discoveries:
+            return Response({'error': 'discoveries 不能为空'}, status=400)
+
+        created_count = 0
+        updated_count = 0
+
+        for item in discoveries:
+            unique_id = item.get('unique_id')
+            if not unique_id:
+                continue
+
+            properties = item.get('properties', {})
+            defaults = {
+                'name': item.get('name', unique_id),
+                'asset_type': item.get('asset_type', 'server'),
+                'status': 'online',
+                'properties': properties,
+                'owner': item.get('owner'),
+            }
+
+            asset, created = Asset.objects.update_or_create(
+                unique_id=unique_id,
+                defaults=defaults
+            )
+
+            if created:
+                created_count += 1
+            else:
+                updated_count += 1
+
+            location_code = item.get('location_code')
+            if location_code:
+                try:
+                    location = LocationNode.objects.get(code=location_code)
+                    asset.location = location
+                    asset.save()
+                except LocationNode.DoesNotExist:
+                    pass
+
+            tags = item.get('tags', [])
+            for tag_str in tags:
+                if ':' in tag_str:
+                    key, value = tag_str.split(':', 1)
+                    tag, _ = Tag.objects.get_or_create(key=key, value=value)
+                    AssetTag.objects.get_or_create(asset=asset, tag=tag)
+
+            AssetChangeLog.objects.create(
+                asset=asset,
+                field='discovered',
+                old_value='',
+                new_value=f'Agent {agent_id} 发现',
+                operator=agent_id,
+                source='agent'
+            )
+
+        logger.info(f"Agent {agent_id} 上报完成：新建 {created_count}，更新 {updated_count}")
+        return Response({
+            'created': created_count,
+            'updated': updated_count,
+            'agent_id': agent_id
+        })
+
+
+class RelationshipViewSet(viewsets.ModelViewSet):
+    """资产关系视图集."""
+
+    queryset = Relationship.objects.select_related('source', 'target').all()
+    serializer_class = RelationshipSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        rel_type = self.request.query_params.get('type')
+        source_id = self.request.query_params.get('source')
+        target_id = self.request.query_params.get('target')
+
+        if rel_type:
+            queryset = queryset.filter(type=rel_type)
+        if source_id:
+            queryset = queryset.filter(source_id=source_id)
+        if target_id:
+            queryset = queryset.filter(target_id=target_id)
+
         return queryset
 
 
-class ClusterViewSet(viewsets.ModelViewSet):
-    """集群视图集.
+class LocationNodeViewSet(viewsets.ModelViewSet):
+    """位置节点视图集."""
 
-    提供集群的完整 CRUD 操作，支持按应用和环境筛选。
+    queryset = LocationNode.objects.prefetch_related('children').all()
+    serializer_class = LocationNodeSerializer
 
-    路由:
-        GET /api/cmdb/clusters/ - 获取集群列表
-        POST /api/cmdb/clusters/ - 创建新集群
-        GET /api/cmdb/clusters/{id}/ - 获取集群详情
-        PUT /api/cmdb/clusters/{id}/ - 更新集群
-        DELETE /api/cmdb/clusters/{id}/ - 删除集群
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return LocationNodeSerializer
+        return LocationNodeSerializer
 
-    筛选参数:
-        - application: 按应用 ID 筛选
-        - environment: 按环境 ID 筛选
 
-    示例:
-        >>> # 获取所有集群
-        >>> requests.get('/api/cmdb/clusters/')
-        >>> # 只获取某应用的集群
-        >>> requests.get('/api/cmdb/clusters/?application=1')
-        >>> # 只获取某环境的集群
-        >>> requests.get('/api/cmdb/clusters/?environment=2')
-    """
+class BusinessServiceNodeViewSet(viewsets.ModelViewSet):
+    """服务树节点视图集."""
 
-    queryset = Cluster.objects.select_related('application', 'environment').all()
-    serializer_class = ClusterSerializer
+    queryset = BusinessServiceNode.objects.prefetch_related('children').all()
+    serializer_class = BusinessServiceNodeSerializer
 
-    def get_queryset(self):
-        """获取查询集，支持按应用和环境筛选.
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return BusinessServiceNodeSerializer
+        return BusinessServiceNodeSerializer
 
-        从请求参数中获取 application 和 environment ID 并过滤结果。
+    @action(detail=True, methods=['post'])
+    def attach(self, request: Request, pk: Optional[str] = None) -> Response:
+        """挂载资产到服务节点."""
+        node = self.get_object()
+        asset_ids = request.data.get('asset_ids', [])
 
-        Returns:
-            过滤后的集群查询集。
-        """
-        queryset = super().get_queryset()
-        application = self.request.query_params.get('application')
-        environment = self.request.query_params.get('environment')
-        if application:
-            queryset = queryset.filter(application_id=application)
-        if environment:
-            queryset = queryset.filter(environment_id=environment)
-        return queryset
+        if not asset_ids:
+            return Response({'error': 'asset_ids 不能为空'}, status=400)
+
+        updated = Asset.objects.filter(id__in=asset_ids).update(business_node=node)
+        logger.info(f"用户 {request.user.username} 将 {updated} 个资产挂载到服务节点 {node.name}")
+        return Response({'attached': updated})
 
 
 class TagViewSet(viewsets.ModelViewSet):
-    """标签视图集.
-
-    提供标签的完整 CRUD 操作。
-
-    路由:
-        GET /api/cmdb/tags/ - 获取标签列表
-        POST /api/cmdb/tags/ - 创建新标签
-        GET /api/cmdb/tags/{id}/ - 获取标签详情
-        PUT /api/cmdb/tags/{id}/ - 更新标签
-        DELETE /api/cmdb/tags/{id}/ - 删除标签
-
-    注意:
-        标签的 key-value 组合必须唯一，创建重复标签会返回错误。
-    """
+    """标签视图集."""
 
     queryset = Tag.objects.all()
     serializer_class = TagSerializer
 
 
-class HostViewSet(viewsets.ModelViewSet):
-    """主机视图集.
+class AssetTypeDefinitionViewSet(viewsets.ModelViewSet):
+    """资产类型定义视图集."""
 
-    提供主机的完整 CRUD 操作，支持按业务线、集群、状态筛选。
-    支持批量和单个主机标签更新。
+    queryset = AssetTypeDefinition.objects.filter(is_active=True).all()
+    serializer_class = AssetTypeDefinitionSerializer
 
-    路由:
-        GET /api/cmdb/hosts/ - 获取主机列表
-        POST /api/cmdb/hosts/ - 创建新主机
-        GET /api/cmdb/hosts/{id}/ - 获取主机详情
-        PUT /api/cmdb/hosts/{id}/ - 更新主机
-        DELETE /api/cmdb/hosts/{id}/ - 删除主机
-        POST /api/cmdb/hosts/{id}/update_tags/ - 更新单个主机标签
-        POST /api/cmdb/hosts/batch_update_tags/ - 批量更新主机标签
 
-    筛选参数:
-        - business_line: 按业务线 ID 筛选
-        - cluster: 按集群 ID 筛选
-        - status: 按状态筛选（online/offline/maintenance）
+class CloudAccountViewSet(viewsets.ModelViewSet):
+    """云账号视图集."""
 
-    附加动作:
-        update_tags: 更新单个主机的标签
-            方法: POST
-            URL: /api/cmdb/hosts/{id}/update_tags/
-            Body: {"tag_ids": [1, 2, 3]}
-            返回: {"status": "ok"}
-
-        batch_update_tags: 批量更新主机标签
-            方法: POST
-            URL: /api/cmdb/hosts/batch_update_tags/
-            Body: {"host_ids": [1, 2, 3], "tag_ids": [4, 5]}
-            返回: {"status": "ok"}
-
-    示例:
-        >>> # 获取所有主机
-        >>> requests.get('/api/cmdb/hosts/')
-        >>> # 获取某业务线的主机
-        >>> requests.get('/api/cmdb/hosts/?business_line=1')
-        >>> # 获取某集群的主机
-        >>> requests.get('/api/cmdb/hosts/?cluster=1')
-        >>> # 获取在线主机
-        >>> requests.get('/api/cmdb/hosts/?status=online')
-        >>> # 更新主机标签
-        >>> requests.post('/api/cmdb/hosts/1/update_tags/', json={'tag_ids': [1, 2]})
-    """
-
-    queryset = Host.objects.select_related('business_line', 'cluster').prefetch_related('tags').all()
-    serializer_class = HostSerializer
-
-    def get_queryset(self):
-        """获取查询集，支持按业务线、集群、状态筛选.
-
-        从请求参数中获取筛选条件并过滤结果。
-
-        Returns:
-            过滤后的主机查询集。
-        """
-        queryset = super().get_queryset()
-        business_line = self.request.query_params.get('business_line')
-        cluster = self.request.query_params.get('cluster')
-        status = self.request.query_params.get('status')
-        if business_line:
-            queryset = queryset.filter(business_line_id=business_line)
-        if cluster:
-            queryset = queryset.filter(cluster_id=cluster)
-        if status:
-            queryset = queryset.filter(status=status)
-        return queryset
+    queryset = CloudAccount.objects.all()
+    serializer_class = CloudAccountSerializer
 
     @action(detail=True, methods=['post'])
-    def update_tags(self, request, pk=None):
-        """更新单个主机的标签.
-
-        替换主机的所有标签为指定的标签列表。
-
-        Args:
-            request: HTTP 请求对象，包含 tag_ids 列表。
-            pk: 主机的 ID。
-
-        Returns:
-            包含状态信息的响应。
-
-        示例:
-            POST /api/cmdb/hosts/1/update_tags/
-            Body: {"tag_ids": [1, 2, 3]}
-            Response: {"status": "ok"}
-        """
-        host = self.get_object()
-        tag_ids = request.data.get('tag_ids', [])
-        host.tags.set(tag_ids)
-        return Response({'status': 'ok'})
-
-    @action(detail=False, methods=['post'])
-    def batch_update_tags(self, request):
-        """批量更新多个主机的标签.
-
-        为指定的所有主机设置相同的标签。
-
-        Args:
-            request: HTTP 请求对象，包含 host_ids 和 tag_ids 列表。
-
-        Returns:
-            包含状态信息的响应。
-
-        示例:
-            POST /api/cmdb/hosts/batch_update_tags/
-            Body: {"host_ids": [1, 2, 3], "tag_ids": [4, 5]}
-            Response: {"status": "ok"}
-        """
-        host_ids = request.data.get('host_ids', [])
-        tag_ids = request.data.get('tag_ids', [])
-        Host.objects.filter(id__in=host_ids).update(tags=tag_ids)
-        return Response({'status': 'ok'})
-
-
-class ApplicationDependencyViewSet(viewsets.ModelViewSet):
-    """应用依赖关系视图集.
-
-    提供应用依赖关系的完整 CRUD 操作。
-
-    路由:
-        GET /api/cmdb/application-dependencies/ - 获取依赖关系列表
-        POST /api/cmdb/application-dependencies/ - 创建新依赖关系
-        GET /api/cmdb/application-dependencies/{id}/ - 获取依赖关系详情
-        PUT /api/cmdb/application-dependencies/{id}/ - 更新依赖关系
-        DELETE /api/cmdb/application-dependencies/{id}/ - 删除依赖关系
-
-    注意:
-        同一应用不能重复依赖同一个应用，违反唯一约束会返回错误。
-
-    示例:
-        >>> # 创建依赖关系
-        >>> requests.post('/api/cmdb/application-dependencies/', json={
-        ...     'application': 1,
-        ...     'depends_on': 2,
-        ...     'description': '用户服务调用支付服务'
-        ... })
-    """
-
-    queryset = ApplicationDependency.objects.select_related('application', 'depends_on').all()
-    serializer_class = ApplicationDependencySerializer
+    def sync(self, request: Request, pk: Optional[str] = None) -> Response:
+        """触发云账号同步."""
+        account = self.get_object()
+        # TODO: 实现实际的云平台同步逻辑
+        # 这里只是模拟同步操作
+        from django.utils import timezone
+        account.last_sync_at = timezone.now()
+        account.save()
+        logger.info(f"用户 {request.user.username} 触发了云账号 {account.name} 的同步")
+        return Response({'status': 'sync started', 'last_sync_at': account.last_sync_at})
