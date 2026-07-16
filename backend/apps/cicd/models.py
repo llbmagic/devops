@@ -353,3 +353,216 @@ class Pipeline(models.Model):
             流水线名称。
         """
         return self.name
+
+
+class ReleaseOrder(models.Model):
+    """发布单模型.
+
+    用于管理代码发布审批流程，包括参数校验、多级审批、定时/手动执行。
+
+    属性:
+        title: 发布标题。
+        description: 发布描述。
+        jenkins_job: 关联的 Jenkins Job，外键关联。
+        job_parameters: 发布的参数字典值（JSON 格式）。
+        execute_mode: 执行模式，manual-手动执行，scheduled-定时执行。
+        scheduled_time: 定时发布时间（可选）。
+        status: 发布单状态。
+        current_step: 当前审批步骤。
+        applicant: 申请人，外键关联用户。
+        created_at: 创建时间。
+        updated_at: 更新时间。
+        closed_at: 关闭时间。
+
+    状态流转:
+        draft -> pending -> approved -> executing -> success/failed -> closed
+            ↓
+        rejected -> closed
+
+    示例:
+        >>> job = JenkinsJob.objects.first()
+        >>> ReleaseOrder.objects.create(
+        ...     title='v2.1.0 版本发布',
+        ...     jenkins_job=job,
+        ...     job_parameters={'version': '2.1.0', 'env': 'prod'},
+        ...     execute_mode='manual',
+        ...     applicant=user
+        ... )
+    """
+
+    EXECUTE_MODE_CHOICES = [
+        ('manual', '手动执行'),
+        ('scheduled', '定时执行'),
+    ]
+    STATUS_CHOICES = [
+        ('draft', '草稿'),
+        ('pending', '待审批'),
+        ('approved', '已批准'),
+        ('rejected', '已拒绝'),
+        ('executing', '执行中'),
+        ('success', '执行成功'),
+        ('failed', '执行失败'),
+        ('closed', '已关闭'),
+    ]
+
+    title = models.CharField(
+        max_length=200,
+        verbose_name='发布标题',
+        help_text='发布单的简要标题'
+    )
+    description = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name='发布描述',
+        help_text='发布的详细描述'
+    )
+    jenkins_job = models.ForeignKey(
+        JenkinsJob,
+        on_delete=models.PROTECT,
+        verbose_name='Jenkins Job',
+        help_text='关联的 Jenkins Job'
+    )
+    job_parameters = models.JSONField(
+        default=dict,
+        verbose_name='发布参数',
+        help_text='发布的参数字典值'
+    )
+    execute_mode = models.CharField(
+        max_length=20,
+        choices=EXECUTE_MODE_CHOICES,
+        default='manual',
+        verbose_name='执行模式',
+        help_text='manual-手动执行，scheduled-定时执行'
+    )
+    scheduled_time = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='定时发布时间',
+        help_text='定时执行的发布时间'
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='draft',
+        verbose_name='状态',
+        help_text='发布单状态'
+    )
+    current_step = models.IntegerField(
+        default=0,
+        verbose_name='当前步骤',
+        help_text='当前审批步骤，从0开始'
+    )
+    applicant = models.ForeignKey(
+        'users.User',
+        on_delete=models.CASCADE,
+        related_name='release_orders',
+        verbose_name='申请人',
+        help_text='提交该发布单的用户'
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='创建时间'
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name='更新时间'
+    )
+    closed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='关闭时间',
+        help_text='发布单关闭时间'
+    )
+
+    class Meta:
+        db_table = 'release_order'
+        verbose_name = '发布单'
+        verbose_name_plural = verbose_name
+        ordering = ['-created_at']
+
+    def __str__(self) -> str:
+        return self.title
+
+
+class ReleaseRecord(models.Model):
+    """发布执行记录模型.
+
+    记录每次发布的执行信息，用于审计追溯。
+
+    属性:
+        release_order: 关联的发布单，外键关联。
+        build_record: 关联的 Jenkins BuildRecord，外键关联（可选）。
+        executor: 执行人。
+        result: 执行结果。
+        output: 执行输出摘要。
+        started_at: 开始时间。
+        finished_at: 结束时间。
+
+    示例:
+        >>> order = ReleaseOrder.objects.first()
+        >>> ReleaseRecord.objects.create(
+        ...     release_order=order,
+        ...     executor='admin',
+        ...     result='success'
+        ... )
+    """
+
+    RESULT_CHOICES = [
+        ('success', '成功'),
+        ('failure', '失败'),
+        ('aborted', '中止'),
+    ]
+
+    release_order = models.ForeignKey(
+        ReleaseOrder,
+        on_delete=models.CASCADE,
+        related_name='release_records',
+        verbose_name='发布单',
+        help_text='关联的发布单'
+    )
+    build_record = models.ForeignKey(
+        BuildRecord,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name='构建记录',
+        help_text='关联的 Jenkins BuildRecord'
+    )
+    executor = models.CharField(
+        max_length=100,
+        verbose_name='执行人',
+        help_text='执行发布单的用户'
+    )
+    result = models.CharField(
+        max_length=20,
+        choices=RESULT_CHOICES,
+        null=True,
+        blank=True,
+        verbose_name='执行结果',
+        help_text='执行结果'
+    )
+    output = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name='执行输出',
+        help_text='执行输出摘要'
+    )
+    started_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='开始时间'
+    )
+    finished_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='结束时间',
+        help_text='执行结束时间'
+    )
+
+    class Meta:
+        db_table = 'release_record'
+        verbose_name = '发布执行记录'
+        verbose_name_plural = verbose_name
+        ordering = ['-started_at']
+
+    def __str__(self) -> str:
+        return f"{self.release_order.title} - {self.result}"

@@ -24,7 +24,5 @@ urlpatterns = [
     path('api/cmdb/', include('apps.cmdb.urls')),
     path('api/cicd/', include('apps.cicd.urls')),
     path('api/monitor/', include('apps.monitor.urls')),
-    path('api/gitlab/', include('apps.gitlab.urls')),
-    path('api/ansible/', include('apps.ansible.urls')),
     path('api/tickets/', include('apps.tickets.urls')),
 ]

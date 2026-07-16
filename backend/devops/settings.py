@@ -44,8 +44,6 @@ INSTALLED_APPS = [
     'apps.cmdb',
     'apps.cicd',
     'apps.monitor',
-    'apps.gitlab',
-    'apps.ansible',
     'apps.tickets',
 ]
 

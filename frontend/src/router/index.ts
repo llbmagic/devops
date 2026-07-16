@@ -94,6 +94,24 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '构建记录' }
       },
       {
+        path: 'cicd/release-orders',
+        name: 'ReleaseOrders',
+        component: () => import('../views/ReleaseOrderList.vue'),
+        meta: { title: '发布单' }
+      },
+      {
+        path: 'cicd/release-orders/create',
+        name: 'ReleaseOrderCreate',
+        component: () => import('../views/ReleaseOrderCreate.vue'),
+        meta: { title: '创建发布单' }
+      },
+      {
+        path: 'cicd/release-orders/my',
+        name: 'MyReleaseOrders',
+        component: () => import('../views/MyReleaseOrders.vue'),
+        meta: { title: '我的待审批' }
+      },
+      {
         path: 'monitor/instances',
         name: 'Prometheus',
         component: () => import('../views/Prometheus.vue'),
@@ -110,42 +128,6 @@ const routes: RouteRecordRaw[] = [
         name: 'Alerts',
         component: () => import('../views/Alerts.vue'),
         meta: { title: '告警记录' }
-      },
-      {
-        path: 'gitlab/instances',
-        name: 'GitLabInstances',
-        component: () => import('../views/GitLabInstances.vue'),
-        meta: { title: 'GitLab 实例' }
-      },
-      {
-        path: 'gitlab/projects',
-        name: 'GitLabProjects',
-        component: () => import('../views/GitLabProjects.vue'),
-        meta: { title: '代码仓库' }
-      },
-      {
-        path: 'gitlab/merge-requests',
-        name: 'MergeRequests',
-        component: () => import('../views/MergeRequests.vue'),
-        meta: { title: '合并请求' }
-      },
-      {
-        path: 'ansible/servers',
-        name: 'AnsibleServers',
-        component: () => import('../views/AnsibleServers.vue'),
-        meta: { title: 'Ansible 节点' }
-      },
-      {
-        path: 'ansible/playbooks',
-        name: 'Playbooks',
-        component: () => import('../views/Playbooks.vue'),
-        meta: { title: '剧本管理' }
-      },
-      {
-        path: 'ansible/records',
-        name: 'AnsibleRecords',
-        component: () => import('../views/AnsibleRecords.vue'),
-        meta: { title: '执行记录' }
       },
       {
         path: 'tickets/templates',

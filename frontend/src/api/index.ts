@@ -221,6 +221,43 @@ interface ApprovalRecord {
   created_at: string
 }
 
+/** 发布单数据 */
+interface ReleaseOrder {
+  id: number
+  title: string
+  description?: string
+  jenkins_job: number
+  jenkins_job_name?: string
+  jenkins_instance_name?: string
+  job_parameters: Record<string, any>
+  execute_mode: 'manual' | 'scheduled'
+  scheduled_time?: string
+  status: 'draft' | 'pending' | 'approved' | 'rejected' | 'executing' | 'success' | 'failed' | 'closed'
+  status_display?: string
+  applicant: number
+  applicant_name?: string
+  current_step: number
+  approval_steps: ApprovalStep[]
+  release_records: ReleaseRecord[]
+  created_at: string
+  updated_at: string
+  closed_at?: string
+}
+
+/** 发布执行记录数据 */
+interface ReleaseRecord {
+  id: number
+  release_order: number
+  release_order_title?: string
+  build_record?: number
+  build_record_id?: number
+  executor: string
+  result?: 'success' | 'failure' | 'aborted'
+  output?: string
+  started_at: string
+  finished_at?: string
+}
+
 /** 工单数据 */
 interface Ticket {
   id: number
@@ -309,19 +346,14 @@ export {
   TokenResponse,
   BusinessLine,
   Host,
-  // GitLab 相关
-  GitLabInstance,
-  Project,
-  MergeRequest,
-  // Ansible 相关
-  AnsibleServer,
-  Playbook,
-  TaskRecord,
   // 工单相关
   TicketTemplate,
   Ticket,
   ApprovalStep,
-  ApprovalRecord
+  ApprovalRecord,
+  // 发布单相关
+  ReleaseOrder,
+  ReleaseRecord
 }
 
 export default api

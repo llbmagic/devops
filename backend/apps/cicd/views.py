@@ -8,18 +8,22 @@
     - 构建触发（触发 Jenkins Job 构建）
     - 构建记录（查看历史构建记录）
     - 流水线部署（通过流水线触发部署任务）
+    - 发布单管理（创建、审批、执行、状态回写）
 
 典型使用场景:
     - 运维人员在平台上添加公司 Jenkins 服务器
     - 同步 Jenkins Job 到平台进行统一管理
     - 开发人员通过平台触发代码构建
     - 通过流水线一键部署应用到目标主机
+    - 创建发布单进行多级审批，审批通过后触发 Jenkins
 
 API 路由:
     - /api/cicd/jenkins-instances/ - Jenkins 实例 CRUD
     - /api/cicd/jobs/ - Jenkins Job CRUD，build 动作触发构建
     - /api/cicd/builds/ - 构建记录（只读）
     - /api/cicd/pipelines/ - 流水线 CRUD，deploy 动作触发部署
+    - /api/cicd/release-orders/ - 发布单 CRUD
+    - /api/cicd/webhooks/jenkins/ - Jenkins Webhook 回调
 
 错误处理:
     - Jenkins API 调用使用 try-except 包装，失败时返回友好错误信息
@@ -35,11 +39,16 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
-from .models import JenkinsInstance, JenkinsJob, BuildRecord, Pipeline
+from django.utils import timezone
+from django.db.models import Q
+from .models import JenkinsInstance, JenkinsJob, BuildRecord, Pipeline, ReleaseOrder, ReleaseRecord
 from .serializers import (
     JenkinsInstanceSerializer, JenkinsJobSerializer,
-    BuildRecordSerializer, PipelineSerializer
+    BuildRecordSerializer, PipelineSerializer,
+    ReleaseOrderSerializer, ReleaseOrderListSerializer, ReleaseRecordSerializer
 )
+from apps.tickets.models import ApprovalStep, ApprovalRecord
+from apps.users.models import User
 
 # 模块级日志记录器
 logger = logging.getLogger(__name__)
@@ -286,3 +295,310 @@ class PipelineViewSet(viewsets.ModelViewSet):
         except requests.RequestException as e:
             logger.error(f"触发流水线 {pipeline.name} 部署失败: {e}")
             return Response({'error': f'部署触发失败: {str(e)}'}, status=500)
+
+
+class ReleaseOrderViewSet(viewsets.ModelViewSet):
+    """发布单视图集.
+
+    提供发布单的完整 CRUD 操作，支持审批流程和执行控制。
+
+    路由:
+        GET /api/cicd/release-orders/ - 获取发布单列表
+        POST /api/cicd/release-orders/ - 创建发布单
+        GET /api/cicd/release-orders/{id}/ - 获取发布单详情
+        PATCH /api/cicd/release-orders/{id}/ - 更新发布单（仅草稿状态）
+        DELETE /api/cicd/release-orders/{id}/ - 删除发布单（仅草稿状态）
+        POST /api/cicd/release-orders/{id}/submit/ - 提交审批
+        POST /api/cicd/release-orders/{id}/approve/ - 审批通过
+        POST /api/cicd/release-orders/{id}/reject/ - 审批拒绝
+        POST /api/cicd/release-orders/{id}/execute/ - 手动执行
+        POST /api/cicd/release-orders/{id}/cancel/ - 取消发布
+        GET /api/cicd/release-orders/{id}/records/ - 获取执行记录
+        GET /api/cicd/release-orders/my_orders/ - 获取待我审批的发布单
+
+    筛选参数:
+        - status: 按状态筛选
+        - applicant: 按申请人 ID 筛选
+        - jenkins_job: 按 Jenkins Job ID 筛选
+    """
+
+    queryset = ReleaseOrder.objects.select_related(
+        'jenkins_job', 'jenkins_job__instance', 'applicant'
+    ).all()
+    serializer_class = ReleaseOrderSerializer
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return ReleaseOrderListSerializer
+        return ReleaseOrderSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        status = self.request.query_params.get('status')
+        applicant_id = self.request.query_params.get('applicant')
+        jenkins_job_id = self.request.query_params.get('jenkins_job')
+
+        if status:
+            queryset = queryset.filter(status=status)
+        if applicant_id:
+            queryset = queryset.filter(applicant_id=applicant_id)
+        if jenkins_job_id:
+            queryset = queryset.filter(jenkins_job_id=jenkins_job_id)
+
+        if self.action == 'my_orders':
+            queryset = queryset.filter(
+                Q(status='pending') &
+                Q(approval_steps__approver=self.request.user) &
+                Q(approval_steps__status='pending')
+            ).distinct()
+
+        return queryset
+
+    def create(self, request: Request) -> Response:
+        """创建发布单.
+
+        创建时需要指定 Jenkins Job、发布参数和审批人列表。
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # 获取审批人列表
+        approver_usernames = request.data.get('approvers', [])
+        if not approver_usernames:
+            return Response({'error': '必须指定审批人'}, status=400)
+
+        # 创建发布单
+        release_order = serializer.save(applicant=request.user)
+
+        # 创建审批步骤
+        for i, username in enumerate(approver_usernames):
+            try:
+                user = User.objects.get(username=username)
+                ApprovalStep.objects.create(
+                    ticket_id=release_order.id,
+                    step=i,
+                    approver=user,
+                    status='pending'
+                )
+            except User.DoesNotExist:
+                pass
+
+        logger.info(f"用户 {request.user.username} 创建了发布单 {release_order.title}")
+        return Response(serializer.data, status=201)
+
+    @action(detail=True, methods=['post'])
+    def submit(self, request: Request, pk: Optional[str] = None) -> Response:
+        """提交发布单审批."""
+        release_order = self.get_object()
+
+        if release_order.applicant != request.user:
+            return Response({'error': '只有申请人可以提交'}, status=403)
+
+        if release_order.status != 'draft':
+            return Response({'error': '只有草稿状态的发布单可以提交'}, status=400)
+
+        release_order.status = 'pending'
+        release_order.save()
+
+        logger.info(f"用户 {request.user.username} 提交了发布单 {release_order.title}")
+        return Response({'status': 'submitted'})
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request: Request, pk: Optional[str] = None) -> Response:
+        """审批通过."""
+        release_order = self.get_object()
+        comment = request.data.get('comment', '')
+
+        if release_order.status != 'pending':
+            return Response({'error': '发布单不在待审批状态'}, status=400)
+
+        current_step_obj = ApprovalStep.objects.filter(
+            ticket_id=release_order.id,
+            step=release_order.current_step
+        ).first()
+
+        if not current_step_obj:
+            return Response({'error': '未找到当前审批步骤'}, status=400)
+
+        if current_step_obj.approver != request.user:
+            return Response({'error': '您不是当前步骤的审批人'}, status=403)
+
+        if current_step_obj.status != 'pending':
+            return Response({'error': '该步骤已完成审批'}, status=400)
+
+        current_step_obj.status = 'approved'
+        current_step_obj.comment = comment
+        current_step_obj.completed_at = timezone.now()
+        current_step_obj.save()
+
+        ApprovalRecord.objects.create(
+            step=current_step_obj,
+            operator=request.user,
+            action='approve',
+            comment=comment
+        )
+
+        total_steps = ApprovalStep.objects.filter(ticket_id=release_order.id).count()
+        if release_order.current_step >= total_steps - 1:
+            release_order.status = 'approved'
+            release_order.closed_at = timezone.now()
+        else:
+            release_order.current_step += 1
+
+        release_order.save()
+
+        logger.info(f"用户 {request.user.username} 批准了发布单 {release_order.title}")
+        return Response({'status': 'approved', 'release_order_status': release_order.status})
+
+    @action(detail=True, methods=['post'])
+    def reject(self, request: Request, pk: Optional[str] = None) -> Response:
+        """审批拒绝."""
+        release_order = self.get_object()
+        comment = request.data.get('comment', '')
+
+        if release_order.status != 'pending':
+            return Response({'error': '发布单不在待审批状态'}, status=400)
+
+        current_step_obj = ApprovalStep.objects.filter(
+            ticket_id=release_order.id,
+            step=release_order.current_step
+        ).first()
+
+        if not current_step_obj:
+            return Response({'error': '未找到当前审批步骤'}, status=400)
+
+        if current_step_obj.approver != request.user:
+            return Response({'error': '您不是当前步骤的审批人'}, status=403)
+
+        current_step_obj.status = 'rejected'
+        current_step_obj.comment = comment
+        current_step_obj.completed_at = timezone.now()
+        current_step_obj.save()
+
+        ApprovalRecord.objects.create(
+            step=current_step_obj,
+            operator=request.user,
+            action='reject',
+            comment=comment
+        )
+
+        release_order.status = 'rejected'
+        release_order.closed_at = timezone.now()
+        release_order.save()
+
+        logger.info(f"用户 {request.user.username} 拒绝了发布单 {release_order.title}")
+        return Response({'status': 'rejected'})
+
+    @action(detail=True, methods=['post'])
+    def execute(self, request: Request, pk: Optional[str] = None) -> Response:
+        """手动执行发布单."""
+        release_order = self.get_object()
+
+        if release_order.status not in ['approved']:
+            return Response({'error': '只有已批准的发布单可以执行'}, status=400)
+
+        # 调用 Jenkins API 触发构建
+        job = release_order.jenkins_job
+        url = f"{job.instance.url}/job/{job.name}/build"
+
+        try:
+            response = requests.post(
+                url,
+                auth=get_jenkins_client(job.instance),
+                json=release_order.job_parameters,
+                timeout=10
+            )
+
+            if response.status_code in [200, 201]:
+                # 创建执行记录
+                record = ReleaseRecord.objects.create(
+                    release_order=release_order,
+                    executor=request.user.username,
+                    result='success'
+                )
+
+                release_order.status = 'executing'
+                release_order.save()
+
+                logger.info(
+                    f"用户 {request.user.username} 执行了发布单 {release_order.title}"
+                )
+                return Response({
+                    'status': 'executing',
+                    'record_id': record.id
+                })
+
+            return Response({'error': '触发构建失败'}, status=400)
+
+        except requests.RequestException as e:
+            logger.error(f"执行发布单失败: {e}")
+            return Response({'error': str(e)}, status=500)
+
+    @action(detail=True, methods=['post'])
+    def cancel(self, request: Request, pk: Optional[str] = None) -> Response:
+        """取消发布单."""
+        release_order = self.get_object()
+
+        if release_order.applicant != request.user:
+            return Response({'error': '只有申请人可以取消'}, status=403)
+
+        if release_order.status in ['executing', 'success', 'failed']:
+            return Response({'error': '该状态下不能取消'}, status=400)
+
+        release_order.status = 'closed'
+        release_order.closed_at = timezone.now()
+        release_order.save()
+
+        logger.info(f"用户 {request.user.username} 取消了发布单 {release_order.title}")
+        return Response({'status': 'closed'})
+
+    @action(detail=True, methods=['get'])
+    def records(self, request: Request, pk: Optional[str] = None) -> Response:
+        """获取发布单的执行记录."""
+        release_order = self.get_object()
+        records = release_order.release_records.all()
+        serializer = ReleaseRecordSerializer(records, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def my_orders(self, request: Request) -> Response:
+        """获取待我审批的发布单."""
+        orders = self.get_queryset()
+        serializer = ReleaseOrderListSerializer(orders, many=True)
+        return Response(serializer.data)
+
+
+class JenkinsWebhookViewSet(viewsets.ViewSet):
+    """Jenkins Webhook 视图集."""
+
+    def create(self, request: Request) -> Response:
+        """处理 Jenkins Webhook 回调."""
+        build_id = request.data.get('build_id')
+        build_status = request.data.get('status')
+
+        if not build_id:
+            return Response({'error': '缺少 build_id'}, status=400)
+
+        try:
+            build_record = BuildRecord.objects.get(id=build_id)
+            release_record = ReleaseRecord.objects.filter(
+                build_record=build_record
+            ).first()
+
+            if release_record:
+                release_record.result = build_status
+                release_record.finished_at = timezone.now()
+                release_record.save()
+
+                release_order = release_record.release_order
+                release_order.status = 'success' if build_status == 'success' else 'failed'
+                release_order.save()
+
+                logger.info(
+                    f"发布单 {release_order.title} 执行完成，状态: {release_order.status}"
+                )
+
+            return Response({'status': 'ok'})
+
+        except BuildRecord.DoesNotExist:
+            return Response({'error': 'BuildRecord not found'}, status=404)
